@@ -1,0 +1,176 @@
+{
+    "definition": {
+        "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+        "contentVersion": "1.0.0.0",
+        "triggers": {
+            "Recurrence": {
+                "type": "Recurrence",
+                "recurrence": {
+                    "interval": 1,
+                    "frequency": "Month",
+                    "timeZone": "India Standard Time"
+                }
+            }
+        },
+        "actions": {
+            "Get_NonCompliant_Devices": {
+                "type": "Http",
+                "inputs": {
+                    "uri": "https://graph.microsoft.com/v1.0/deviceManagement/managedDevices?$filter=complianceState%20eq%20'noncompliant'&$select=deviceName,complianceState,userPrincipalName",
+                    "method": "GET",
+                    "authentication": {
+                        "type": "ManagedServiceIdentity",
+                        "audience": "https://graph.microsoft.com"
+                    }
+                },
+                "runAfter": {},
+                "runtimeConfiguration": {
+                    "contentTransfer": {
+                        "transferMode": "Chunked"
+                    }
+                }
+            },
+            "Parse_NonCompliant_Devices": {
+                "type": "ParseJson",
+                "inputs": {
+                    "content": "@body('Get_NonCompliant_Devices')",
+                    "schema": {
+                        "type": "object",
+                        "properties": {
+                            "value": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "deviceName": {
+                                            "type": "string"
+                                        },
+                                        "complianceState": {
+                                            "type": "string"
+                                        },
+                                        "userPrincipalName": {
+                                            "type": "string"
+                                        }
+                                    },
+                                    "required": [
+                                        "deviceName",
+                                        "complianceState",
+                                        "userPrincipalName"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Get_NonCompliant_Devices": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Initialize_UserObjectId": {
+                "type": "InitializeVariable",
+                "inputs": {
+                    "variables": [
+                        {
+                            "name": "userObjectId",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "runAfter": {
+                    "Parse_NonCompliant_Devices": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "Set_UserObjectId": {
+                "type": "SetVariable",
+                "inputs": {
+                    "name": "userObjectId",
+                    "value": "xxx@cqons.onMicrosoft.com"
+                },
+                "runAfter": {
+                    "Initialize_UserObjectId": [
+                        "Succeeded"
+                    ]
+                }
+            },
+            "If_No_NonCompliant_Devices": {
+                "type": "If",
+                "expression": {
+                    "and": [
+                        {
+                            "equals": [
+                                "@body('Parse_NonCompliant_Devices')",
+                                ""
+                            ]
+                        }
+                    ]
+                },
+                "actions": {},
+                "else": {
+                    "actions": {
+                        "For_each": {
+                            "type": "foreach",
+                            "foreach": "@outputs('Parse_NonCompliant_Devices')?['body']?['value']",
+                            "actions": {
+                                "Send_Email_Report": {
+                                    "type": "Http",
+                                    "inputs": {
+                                        "uri": "https://graph.microsoft.com/v1.0/users/@{variables('userObjectId')}/sendMail",
+                                        "method": "POST",
+                                        "body": {
+                                            "message": {
+                                                "subject": "Daily Intune Non-Compliant Device Report",
+                                                "body": {
+                                                    "contentType": "HTML",
+                                                    "content": "<table border='1' style='border-collapse:collapse;padding:5px;'>\n  <tr>\n    <th>Device Name</th>\n    <th>User</th>\n  </tr>\n  <tr>\n    <td>@{items('For_each')?['deviceName']}</td>\n    <td>@{item()?['userPrincipalName']}</td>\n  </tr>\n</table>"
+                                                },
+                                                "toRecipients": [
+                                                    {
+                                                        "emailAddress": {
+                                                            "address": "dipesh777@cqons.onMicrosoft.com"
+                                                        }
+                                                    }
+                                                ]
+                                            },
+                                            "saveToSentItems": true
+                                        },
+                                        "authentication": {
+                                            "type": "ManagedServiceIdentity",
+                                            "audience": "https://graph.microsoft.com"
+                                        }
+                                    },
+                                    "runtimeConfiguration": {
+                                        "contentTransfer": {
+                                            "transferMode": "Chunked"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+                "runAfter": {
+                    "Set_UserObjectId": [
+                        "Succeeded"
+                    ]
+                }
+            }
+        },
+        "outputs": {},
+        "parameters": {
+            "$connections": {
+                "type": "Object",
+                "defaultValue": {}
+            }
+        }
+    },
+    "parameters": {
+        "$connections": {
+            "type": "Object",
+            "value": {}
+        }
+    }
+}
